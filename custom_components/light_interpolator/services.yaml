@@ -44,6 +44,18 @@ set_target:
       name: White multiplier
       description: Brightness multiplier the hue LUT blends toward as saturation goes to zero.
       example: 0.45
+    max_hue_step:
+      name: Maximum hue step
+      description: Gradient mode. Largest hue change in degrees per command; the interval between commands shrinks to honour it (down to min_step_ms).
+      example: 3
+    max_sat_step:
+      name: Maximum saturation step
+      description: Gradient mode. Largest saturation change in percent per command.
+      example: 6
+    min_step_ms:
+      name: Minimum step
+      description: Gradient mode. Shortest interval in milliseconds between commands.
+      example: 100
     tuya_gradient_dp:
       name: Tuya gradient data point
       description: LocalTuya lights only. Data point of the bulb's gradient control (usually 28). Intermediate steps are written there so the bulb fades between them.

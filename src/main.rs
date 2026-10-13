@@ -62,6 +62,9 @@ struct HassInterpolatorTarget {
     hue_lut: Option<Vec<[f64; 2]>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tuya_gradient_dp: Option<u64>,
+    max_hue_step: f64,
+    max_sat_step: f64,
+    min_step_ms: u64,
 }
 
 /// Per-request timeout so a stalled Home Assistant cannot freeze the capture loop.
@@ -720,6 +723,9 @@ fn send_ha_interpolator(
         white_multiplier: settings.accent_mode.white_multiplier.clamp(0.0, 2.0),
         hue_lut,
         tuya_gradient_dp: settings.accent_mode.tuya_gradient_dp,
+        max_hue_step: settings.accent_mode.tuya_gradient_max_hue_step_deg.clamp(0.5, 45.0),
+        max_sat_step: settings.accent_mode.tuya_gradient_max_sat_step_pct.clamp(0.5, 100.0),
+        min_step_ms: settings.accent_mode.tuya_gradient_min_step_ms.clamp(30, 2000),
     };
 
     post_ha_service(settings, "light_interpolator/set_target", &payload, HA_TIMEOUT)

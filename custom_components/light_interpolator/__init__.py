@@ -56,6 +56,10 @@ SET_TARGET_SCHEMA = vol.Schema(
         ),
         vol.Optional("hue_lut"): [vol.ExactSequence([vol.Coerce(float), vol.Coerce(float)])],
         # LocalTuya only: data point of the bulb's gradient control (28 on standard Tuya lights)
+        # Gradient mode: largest hue / saturation change per command; the step interval shrinks to honour it
+        vol.Optional("max_hue_step", default=3.0): vol.All(vol.Coerce(float), vol.Clamp(min=0.5, max=45.0)),
+        vol.Optional("max_sat_step", default=6.0): vol.All(vol.Coerce(float), vol.Clamp(min=0.5, max=100.0)),
+        vol.Optional("min_step_ms", default=100): vol.All(vol.Coerce(int), vol.Clamp(min=30, max=2000)),
         vol.Optional("tuya_gradient_dp"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1, max=255))),
     }
 )
@@ -283,68 +287,113 @@ async def async_setup(hass, config):
         if gradient_dp and entity_id not in gradient_failed:
             gradient_device = localtuya_device_id(entity_id)
 
+        max_hue_step = data["max_hue_step"]
+        max_sat_step = data["max_sat_step"]
+        min_dt = min(data["min_step_ms"] / 1000.0, dt)
+
+        def pose(t):
+            """Colour and base brightness at fraction t of the transition."""
+            eased = ease_in_out(t)
+            if t >= 1.0 or not colour_moves:
+                h, s_pct = target_h, target_s
+            else:
+                x, y = path.point(path.length * eased)
+                radius = math.hypot(x, y)
+                h = math.degrees(math.atan2(y, x)) % 360.0 if radius > 1e-6 else start_h
+                s_pct = max(floor_pct, min(100.0, radius * 100.0))
+            return h, s_pct, start_base + eased * (target_base - start_base)
+
+        def next_interval(t, h, s_pct):
+            """Time to the next command: dt, shortened so one command never moves hue/saturation too far."""
+            step = dt
+            while duration > 0.0 and step > min_dt:
+                h2, s2, _ = pose(min(1.0, t + step / duration))
+                if hue_distance(h2, h) <= max_hue_step and abs(s2 - s_pct) <= max_sat_step:
+                    break
+                step *= 0.7
+            return max(step, min_dt)
+
         async def interpolate_worker():
             try:
                 start_time = time.monotonic()
                 last_sent_tuple = None
                 use_gradient = gradient_device is not None
-                h_eff = start_h
+                # Fade straight away only when the bulb is already on in colour mode; otherwise the first
+                # command is a light.turn_on, which switches it on in colour mode.
+                state = hass.states.get(entity_id)
+                gradient_ready = bool(
+                    use_gradient
+                    and state is not None
+                    and state.state == "on"
+                    and state.attributes.get("color_mode") == "hs"
+                )
+
+                async def send_gradient(h_eff, s_eff, base, started):
+                    """Write one colour to the gradient data point. Returns False if the bulb ignores it."""
+                    nonlocal last_sent_tuple
+                    value = base * brightness_multiplier(h_eff, s_eff, white_mul, lut) / 255.0
+                    cmd_tuple = (
+                        round(h_eff) % 360,
+                        round(s_eff * 10.0),
+                        max(TUYA_MIN_VALUE, min(1000, round(value * 1000.0))),
+                    )
+                    if cmd_tuple == last_sent_tuple:
+                        return True
+                    last_sent_tuple = cmd_tuple
+                    try:
+                        await hass.services.async_call(
+                            "localtuya",
+                            "set_dp",
+                            {
+                                "device_id": gradient_device,
+                                "dp": gradient_dp,
+                                "value": "1%04x%04x%04x00000000" % cmd_tuple,
+                            },
+                            blocking=True,
+                        )
+                        return time.monotonic() - started <= GRADIENT_STALL_SECS
+                    except Exception as e:  # pylint: disable=broad-except
+                        _LOGGER.warning("Gradient data point failed for %s: %s", entity_id, e)
+                        return False
 
                 while True:
                     now = time.monotonic()
                     t = 1.0 if duration <= 0.0 else min(1.0, (now - start_time) / duration)
-                    eased = ease_in_out(t)
-
-                    if t >= 1.0 or not colour_moves:
-                        h_eff, s_eff = target_h, target_s
-                    else:
-                        x, y = path.point(path.length * eased)
-                        radius = math.hypot(x, y)
-                        if radius > 1e-6:
-                            h_eff = math.degrees(math.atan2(y, x)) % 360.0
-                        s_eff = max(floor_pct, min(100.0, radius * 100.0))
-
-                    base = start_base + eased * (target_base - start_base)
+                    h_eff, s_eff, base = pose(t)
                     bri = calculate_brightness(h_eff, s_eff, base, white_mul, lut)
 
                     last_emitted[entity_id] = (h_eff, s_eff, base, now)
 
-                    if use_gradient and last_sent_tuple is not None and t < 1.0:
-                        # Intermediate steps go to the bulb's gradient data point, so the firmware
-                        # fades between them. First and last step use light.turn_on, which switches
-                        # the light on in colour mode and keeps the entity state in sync.
-                        value = base * brightness_multiplier(h_eff, s_eff, white_mul, lut) / 255.0
-                        cmd_tuple = (
-                            round(h_eff) % 360,
-                            round(s_eff * 10.0),
-                            max(TUYA_MIN_VALUE, min(1000, round(value * 1000.0))),
-                        )
-                        if cmd_tuple != last_sent_tuple:
-                            last_sent_tuple = cmd_tuple
-                            try:
-                                await hass.services.async_call(
-                                    "localtuya",
-                                    "set_dp",
-                                    {
-                                        "device_id": gradient_device,
-                                        "dp": gradient_dp,
-                                        "value": "1%04x%04x%04x00000000" % cmd_tuple,
-                                    },
-                                    blocking=True,
-                                )
-                                stalled = time.monotonic() - now > GRADIENT_STALL_SECS
-                            except Exception as e:  # pylint: disable=broad-except
-                                _LOGGER.warning("Gradient data point failed for %s: %s", entity_id, e)
-                                stalled = True
-                            if stalled:
-                                _LOGGER.warning(
-                                    "%s does not answer on data point %s, using light.turn_on steps",
-                                    entity_id,
-                                    gradient_dp,
-                                )
-                                gradient_failed.add(entity_id)
-                                use_gradient = False
-                        await asyncio.sleep(max(0.005, dt - (time.monotonic() - now)))
+                    if use_gradient and gradient_ready:
+                        # Intermediate steps go to the bulb's gradient data point, so the firmware fades
+                        # between them. The entity state does not follow that data point, so the last
+                        # step is repeated through light.turn_on to bring Home Assistant back in sync.
+                        if not await send_gradient(h_eff, s_eff, base, now):
+                            _LOGGER.warning(
+                                "%s does not answer on data point %s, using light.turn_on steps",
+                                entity_id,
+                                gradient_dp,
+                            )
+                            gradient_failed.add(entity_id)
+                            use_gradient = False
+                            last_sent_tuple = None
+                            continue
+                        if t >= 1.0:
+                            # Let the bulb reach the last colour, then sync the entity (no visible change)
+                            await asyncio.sleep(dt)
+                            await hass.services.async_call(
+                                "light",
+                                "turn_on",
+                                {
+                                    "entity_id": entity_id,
+                                    "hs_color": [round(h_eff, 1), round(s_eff, 1)],
+                                    "brightness": bri,
+                                },
+                                blocking=True,
+                            )
+                            break
+                        wait = next_interval(t, h_eff, s_eff)
+                        await asyncio.sleep(max(0.005, wait - (time.monotonic() - now)))
                         continue
 
                     # Deduplicate identical quantized hardware states (LocalTuya rounds Hue to integer degrees)
@@ -361,6 +410,8 @@ async def async_setup(hass, config):
                             },
                             blocking=True,
                         )
+                        if use_gradient:
+                            gradient_ready = True
 
                     if t >= 1.0:
                         break

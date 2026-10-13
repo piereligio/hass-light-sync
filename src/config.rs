@@ -287,9 +287,18 @@ pub struct AccentModeConfig {
     /// When set, light_interpolator sends intermediate steps there and the bulb fades between them.
     #[serde(default)]
     pub tuya_gradient_dp: Option<u64>,
-    /// ms between steps when `tuya_gradient_dp` is set.
+    /// Longest interval in ms between gradient commands (used while the colour moves slowly).
     #[serde(default = "default_tuya_gradient_step_ms")]
     pub tuya_gradient_step_ms: u64,
+    /// Largest hue change in degrees per gradient command; the interval shrinks to honour it.
+    #[serde(default = "default_tuya_gradient_max_hue_step_deg")]
+    pub tuya_gradient_max_hue_step_deg: f64,
+    /// Largest saturation change in percent per gradient command.
+    #[serde(default = "default_tuya_gradient_max_sat_step_pct")]
+    pub tuya_gradient_max_sat_step_pct: f64,
+    /// Shortest interval in ms between gradient commands.
+    #[serde(default = "default_tuya_gradient_min_step_ms")]
+    pub tuya_gradient_min_step_ms: u64,
     /// HA master brightness smoothing: 0 or None = brightness follows color synchronously without lag.
     #[serde(default)]
     pub master_brightness_smoothing_tau_ms: Option<f64>,
@@ -314,6 +323,18 @@ fn default_transition_min_duration_secs() -> f64 {
 
 fn default_tuya_gradient_step_ms() -> u64 {
     400
+}
+
+fn default_tuya_gradient_max_hue_step_deg() -> f64 {
+    3.0
+}
+
+fn default_tuya_gradient_max_sat_step_pct() -> f64 {
+    6.0
+}
+
+fn default_tuya_gradient_min_step_ms() -> u64 {
+    100
 }
 
 fn default_white_multiplier() -> f64 {
@@ -409,6 +430,9 @@ impl Default for AccentModeConfig {
             white_multiplier: default_white_multiplier(),
             tuya_gradient_dp: None,
             tuya_gradient_step_ms: default_tuya_gradient_step_ms(),
+            tuya_gradient_max_hue_step_deg: default_tuya_gradient_max_hue_step_deg(),
+            tuya_gradient_max_sat_step_pct: default_tuya_gradient_max_sat_step_pct(),
+            tuya_gradient_min_step_ms: default_tuya_gradient_min_step_ms(),
             master_brightness_smoothing_tau_ms: None,
             warm: default_warm_output(),
             magenta: default_magenta_output(),

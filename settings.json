@@ -93,6 +93,11 @@
         // Intervallo in ms tra i passi quando tuya_gradient_dp e attivo. La lampadina sfuma da sola tra un passo e l'altro:
         // a 500 ms il movimento risulta ancora continuo su light.luce_scrivania.
         "tuya_gradient_step_ms": 400,
+        // Passo massimo per comando: l'intervallo si accorcia (fino a tuya_gradient_min_step_ms) dove il colore
+        // si muove in fretta, per esempio lungo il cerchio della saturazione minima.
+        "tuya_gradient_max_hue_step_deg": 3.0,
+        "tuya_gradient_max_sat_step_pct": 6.0,
+        "tuya_gradient_min_step_ms": 100,
 
         // Moltiplicatore di luminosita verso cui tende la taratura per tinta quando la saturazione scende (bianco).
         // Luminosita finale = base * (white_multiplier + S * (moltiplicatore_tinta - white_multiplier)).
