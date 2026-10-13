@@ -1,0 +1,76 @@
+set_target:
+  name: Set target
+  description: Fade a light to a hue/saturation target along the HS disk, with hue-calibrated brightness.
+  fields:
+    entity_id:
+      name: Entity
+      description: Light to drive.
+      required: true
+      example: light.luce_scrivania
+      selector:
+        entity:
+          domain: light
+    target_h:
+      name: Target hue
+      description: Hue in degrees (0..360).
+      required: true
+      example: 186
+    target_s:
+      name: Target saturation
+      description: Saturation in percent (0..100). Raised to min_saturation_floor.
+      required: true
+      example: 100
+    base_brightness:
+      name: Base brightness
+      description: Brightness (1..255) before the hue multiplier. Faded together with the colour.
+      example: 255
+    max_duration:
+      name: Maximum duration
+      description: Seconds for a jump across the whole disk. Shorter jumps take proportionally less.
+      example: 8
+    min_duration:
+      name: Minimum duration
+      description: Lower bound in seconds for any transition that changes colour or brightness.
+      example: 1.5
+    step_ms:
+      name: Step
+      description: Minimum milliseconds between commands (30..2000). The bulb's reply time also limits the rate.
+      example: 35
+    min_saturation_floor:
+      name: Saturation floor
+      description: The path never goes below this saturation (percent).
+      example: 35
+    white_multiplier:
+      name: White multiplier
+      description: Brightness multiplier the hue LUT blends toward as saturation goes to zero.
+      example: 0.45
+    hue_lut:
+      name: Hue brightness LUT
+      description: List of [hue, multiplier] pairs, interpolated circularly.
+      example: "[[0, 0.5], [120, 0.75], [240, 1.0]]"
+
+stop:
+  name: Stop
+  description: Cancel the running transition and forget the last emitted colour.
+  fields:
+    entity_id:
+      name: Entity
+      description: Light whose transition is stopped.
+      required: true
+      example: light.luce_scrivania
+      selector:
+        entity:
+          domain: light
+
+halt:
+  name: Halt
+  description: Alias of stop.
+  fields:
+    entity_id:
+      name: Entity
+      description: Light whose transition is stopped.
+      required: true
+      example: light.luce_scrivania
+      selector:
+        entity:
+          domain: light

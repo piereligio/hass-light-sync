@@ -1,9 +1,160 @@
 {
+    // ==========================================
+    // CONFIGURAZIONE HOME ASSISTANT & CATTURA
+    // ==========================================
     "api_endpoint": "http://<IP>:<PORT>",
     "light_entity_name": "light.[entity]",
-    "token": "LONG ACCESS TOKEN HERE",  
-    "grab_interval": 50,        
-    "skip_pixels": 10,          
-    "smoothing_factor": 0.0, 
-    "monitor_id": 0             
+    "token": "LONG_ACCESS_TOKEN_HERE",
+    "monitor_id": 0,
+    "grab_interval": 50,
+    "send_interval_ms": 80,
+    "skip_pixels": 10,
+
+    // Transizione hardware Home Assistant.
+    // IMPORTANTE: Le lampadine Tuya/Wi-Fi NON supportano la transizione hardware.
+    // La dissolvenza fluida viene calcolata ed eseguita in software dal programma
+    // tramite interpolazione 3D (transition_tau_ms) e send_interval_ms.
+    // Lascia "transition": null per una dissolvenza software continua senza scatti.
+    "transition": null,
+
+    // Limite massimo globale di luminosita (1..255).
+    "max_brightness": 255,
+
+    // Selezione della modalita di sincronizzazione attiva:
+    // - "night" (o "accent"): modalita notturna intelligente a palette cromatica rilassante.
+    // - "standard": modalita ambilight classica (media pesata RGB con curva gamma).
+    "mode": "night",
+
+    // Delega dell'interpolazione 2D HS e calibrazione luminosita al componente custom Home Assistant (light_interpolator)
+    "use_light_interpolator": true,
+
+    // ==========================================
+    // TARATURA LUMINOSITA PER TONALITA (HUE LUT)
+    // ==========================================
+    // Calibrazione della luminosita percepita in base all'angolo di tinta (0..360 deg).
+    // Risolve le differenze di efficienza percepita tra i colori (es. blu scuro vs giallo/verde abbagliante).
+    // Viene interpolato in modo circolare e applicato proporzionalmente alla saturazione
+    // (a saturazione zero vale night_mode.white_multiplier).
+    "hue_brightness_lut": [
+        // 0.0 deg: Rosso / Rosso-arancio (attenuato per non abbagliare)
+        { "hue": 0.0, "brightness_mul": 0.5, "color": "Rosso / Rosso-arancio" },
+
+        // 60.0 deg: Giallo
+        { "hue": 60.0, "brightness_mul": 0.625, "color": "Giallo" },
+
+        // 120.0 deg: Verde
+        { "hue": 120.0, "brightness_mul": 0.75, "color": "Verde" },
+
+        // 180.0 deg: Ciano
+        { "hue": 180.0, "brightness_mul": 0.875, "color": "Ciano" },
+
+        // 240.0 deg: Blu totale (riferimento a massima intensita)
+        { "hue": 240.0, "brightness_mul": 1.0, "color": "Blu totale" },
+
+        // 300.0 deg: Magenta
+        { "hue": 300.0, "brightness_mul": 0.75, "color": "Magenta" },
+
+        // 360.0 deg: Chiusura cerchio cromatico (coincide con 0 deg)
+        { "hue": 360.0, "brightness_mul": 0.5, "color": "Rosso / Rosso-arancio (360 deg)" }
+    ],
+
+    // ==========================================
+    // SEZIONE 1: MODALITA NOTTURNA ("mode": "night")
+    // ==========================================
+    "night_mode": {
+        // Luminosita base per la notte (1..255). Se null, usa max_brightness.
+        "brightness": null,
+
+        // Moltiplicatore rapido di luminosita per la modalita notte (1.0 = 100%, 0.8 = 80%).
+        "brightness_multiplier": 1.0,
+
+        // Limite massimo di differenza di colore (delta RGB 0..255) per iterazione:
+        // Definisce un tetto rigido alla velocita di transizione per ogni frame (es. send_interval_ms = 80ms),
+        // garantendo una velocita lineare costante ed evitando qualsiasi sbalzo iniziale brusco.
+        // - max_delta_per_iter = 3.0: transizione molto lenta e graduale (~7 secondi per 0..255 a 80ms)
+        // - max_delta_per_iter = 5.0: transizione morbida (~4 secondi)
+        // - max_delta_per_iter = 8.0: transizione vivace (~2.5 secondi)
+        "max_delta_per_iter": 5.0,
+
+        // Durata esponenziale tau (usata solo se use_light_interpolator e false):
+        "transition_tau_ms": null,
+
+        // Durata MASSIMA in secondi per il salto cromatico massimo ipoteticamente possibile (diametro cerchio HS).
+        // Nota: LocalTuya codifica la Hue in gradi interi (0..360); con 6..12s i passi sono abbastanza fitti da apparire continui.
+        "transition_duration_secs": 8.0,
+
+        // Durata MINIMA in secondi di qualsiasi transizione: evita che i salti cromatici brevi risultino bruschi.
+        "transition_min_duration_secs": 1.5,
+
+        // Moltiplicatore di luminosita verso cui tende la taratura per tinta quando la saturazione scende (bianco).
+        // Luminosita finale = base * (white_multiplier + S * (moltiplicatore_tinta - white_multiplier)).
+        "white_multiplier": 0.45,
+
+        // Soglia minima di saturazione (0..100): impedisce alla transizione 3D di scendere a bianco puro,
+        // evitando che la lampadina Tuya attivi improvvisamente i LED bianchi CCT separati con sfarfallii/scatti.
+        "min_saturation_floor": 35.0,
+
+        // Isteresi sul cambio colore: il colore sfidante deve superare quello attuale
+        // del 30% (1.30) per innescare il passaggio di colore, evitando continui cambi nervosi.
+        "hysteresis_ratio": 1.30,
+
+        // Smussamento temporale dell'istogramma (0.0 = istantaneo, 0.6 = smussato).
+        "hist_smoothing": 0.6,
+
+        // Peso minimo pixel colorati rispetto ai pixel campionati (0.03 = 3%).
+        // Se i pixel colorati sono sotto questo valore (es. una sola iconcina o badge minuscolo),
+        // il colore viene ignorato e rimane il colore precedente o la luce calda di riposo.
+        "min_accent_weight": 0.03,
+
+        // Saturazione minima (0..1) per considerare un pixel colorato nell'analisi video.
+        "min_saturation": 0.15,
+
+        // Comportamento quando lo schermo e neutro, grigio o scuro:
+        // false: rimane sulla luce calda soffusa di riposo (weak_fallback_brightness).
+        // true: segue il colore medio dello schermo.
+        "allow_neutral_on_weak": false,
+        "weak_fallback_brightness": 48,
+
+        // Parametri avanzati istogramma
+        "hist_bin_deg": 20.0,
+        "split_hue_deg": 92.0,
+        "secondary_min_weight_ratio": 0.22,
+        "weak_peak_ratio": 0.065,
+
+        // Palette dei colori notturni (terne RGB pulite [R, G, B]):
+        // La luminosita e ora gestita in modo coerente e unico da max_brightness/brightness e hue_brightness_lut.
+        "warm": [255, 72, 18],
+        "magenta": [215, 42, 125],
+        "green": [48, 205, 78],
+        "cyan": [0, 175, 195],
+        "violet": [105, 48, 175]
+    },
+
+    // ==========================================
+    // SEZIONE 2: MODALITA STANDARD / AMBILIGHT ("mode": "standard")
+    // ==========================================
+    "standard_mode": {
+        // Smussamento temporale per media RGB (ms, 0 = istantaneo)
+        "smoothing_tau_ms": 300.0,
+
+        // Correzione gamma (1.0 = lineare, >1 = scurisce i toni bassi ed enfatizza i colori)
+        "gamma": 1.0,
+        "gamma_white": null,
+        "white_chroma_max": 0.04,
+
+        // Tabella HSL di rimappatura fine per la modalita standard
+        "hsl_lut": [
+            { "brightness": 0.0, "hue_shift_deg": 0.0, "saturation_mul": 1.0, "lightness_mul": 1.0 },
+            { "brightness": 1.0, "hue_shift_deg": 0.0, "saturation_mul": 1.0, "lightness_mul": 1.0 }
+        ]
+    },
+
+    // ==========================================
+    // INTEGRAZIONE FLUX / YELLOW TINT
+    // ==========================================
+    "yellow_tint": {
+        "mode": "off",
+        "manual_strength": 0.0
+    },
+    "flux_poll_interval_ms": 3000
 }

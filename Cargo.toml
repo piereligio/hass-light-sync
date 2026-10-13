@@ -6,9 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-console = "0.15.0"
-tokio = { version = "1.13.0", features = ["full"] }
+# 0.15+ pulls windows-sys (needs dlltool on x86_64-pc-windows-gnu). 0.14 uses winapi.
+console = "0.14.1"
 captrs = "0.3.1"
-reqwest = { version = "0.11.6", features = ["json"] }
+# Blocking HTTP, no tokio/hyper/socket2. default-features off: http:// HA URLs need no TLS stack.
+# For https, add ureq features e.g. rustls + webpki-roots (see ureq docs).
+ureq = { version = "2.12", default-features = false, features = ["json"] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }

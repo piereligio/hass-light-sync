@@ -19,19 +19,61 @@ and copy the `hass-light-sync.exe` from the target folder anywhere you like. The
 
 # Configuration
 
+The application supports hot-reloading `settings.json` automatically when saved. Two modes are supported:
+- `"night"`: smart discrete accent palette with 2D chromaticity disk chord transitions and perceived brightness correction.
+- `"standard"`: classic screen-averaged ambilight with gamma correction.
+
+When `use_light_interpolator` is true (default), the app offloads 2D HS interpolation and brightness calibration directly to the `light_interpolator` custom component in Home Assistant, eliminating high-frequency network streaming from the PC.
+
+The component lives in `custom_components/light_interpolator/`. Copy that folder into the Home Assistant config directory (`<config>/custom_components/light_interpolator/`), add `light_interpolator:` to `configuration.yaml` and restart Home Assistant. Update the component together with the app: the app sends `min_duration` and `white_multiplier`, which older component versions ignore.
+
 ```json
 {
     "api_endpoint": "http://<IP>:<PORT>", 
     "light_entity_name": "light.[entity]",
     "token": "LONG ACCESS TOKEN HERE",  
-    "grab_interval": 50,// interval in ms to grab frame
-    "skip_pixels": 10,  // only sample n-th pixel (1 -> native, 2 -> 1/2 res etc.)
-                        // saves cpu processing
+    "monitor_id": 0,
+    "grab_interval": 50,
+    "send_interval_ms": 80,
+    "skip_pixels": 10,
+    "transition": null,
+    "max_brightness": 255,
+    "mode": "night",
+    "use_light_interpolator": true,
 
-    "smoothing_factor": 0.0, // factor to average out frames:
-    // old_frame * smoothing_factor + new_frame * (1-smoothing_factor)   
-    // 0 -> disable,   0.25 -> 25 % old frame, 75 % new frame etc.
+    "hue_brightness_lut": [
+        { "hue": 0.0, "brightness_mul": 0.5, "color": "Red" },
+        { "hue": 60.0, "brightness_mul": 0.625, "color": "Yellow" },
+        { "hue": 120.0, "brightness_mul": 0.75, "color": "Green" },
+        { "hue": 180.0, "brightness_mul": 0.875, "color": "Cyan" },
+        { "hue": 240.0, "brightness_mul": 1.0, "color": "Blue" },
+        { "hue": 300.0, "brightness_mul": 0.75, "color": "Magenta" },
+        { "hue": 360.0, "brightness_mul": 0.5, "color": "Red" }
+    ],
 
-    "monitor_id": 0 // ID of the target monitor
+    "night_mode": {
+        "brightness": null,
+        "brightness_multiplier": 1.0,
+        "transition_tau_ms": 1500,
+        "min_saturation_floor": 35.0,
+        "hysteresis_ratio": 1.30,
+        "hist_smoothing": 0.6,
+        "min_accent_weight": 0.03,
+        "min_saturation": 0.15,
+        "allow_neutral_on_weak": false,
+        "weak_fallback_brightness": 48,
+        "warm": [255, 72, 18],
+        "magenta": [215, 42, 125],
+        "green": [48, 205, 78],
+        "cyan": [0, 175, 195],
+        "violet": [105, 48, 175]
+    },
+
+    "standard_mode": {
+        "smoothing_tau_ms": 300.0,
+        "gamma": 1.0,
+        "gamma_white": null,
+        "white_chroma_max": 0.04
+    }
 }
 ```
