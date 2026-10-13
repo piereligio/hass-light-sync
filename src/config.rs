@@ -313,7 +313,7 @@ fn default_transition_min_duration_secs() -> f64 {
 }
 
 fn default_tuya_gradient_step_ms() -> u64 {
-    150
+    400
 }
 
 fn default_white_multiplier() -> f64 {
