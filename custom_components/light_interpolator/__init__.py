@@ -6,7 +6,7 @@ import time
 
 import voluptuous as vol
 
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, entity_registry as er
 
 _LOGGER = logging.getLogger(__name__)
 DOMAIN = "light_interpolator"
@@ -28,6 +28,10 @@ HUE_MATCH_DEG = 2.0
 SAT_MATCH_PCT = 2.0
 # Fraction of the transition spent accelerating, and again decelerating.
 EASE_RAMP = 0.2
+# A gradient data point write slower than this means the bulb ignores it (LocalTuya waits for a reply).
+GRADIENT_STALL_SECS = 1.5
+# Lowest value (of 1000) Tuya colour data accepts.
+TUYA_MIN_VALUE = 10
 
 SET_TARGET_SCHEMA = vol.Schema(
     {
@@ -51,6 +55,8 @@ SET_TARGET_SCHEMA = vol.Schema(
             vol.Coerce(float), vol.Clamp(min=0.0, max=2.0)
         ),
         vol.Optional("hue_lut"): [vol.ExactSequence([vol.Coerce(float), vol.Coerce(float)])],
+        # LocalTuya only: data point of the bulb's gradient control (28 on standard Tuya lights)
+        vol.Optional("tuya_gradient_dp"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1, max=255))),
     }
 )
 
@@ -195,6 +201,19 @@ async def async_setup(hass, config):
             prev_task.cancel()
         return was_running
 
+    # Entities whose bulb did not answer on the gradient data point (until the next restart)
+    gradient_failed = set()
+
+    def localtuya_device_id(entity_id):
+        """Tuya device id of a LocalTuya entity (unique id is local_<device id>_<dp>), else None."""
+        entry = er.async_get(hass).async_get(entity_id)
+        if not entry or entry.platform != "localtuya":
+            return None
+        unique_id = entry.unique_id or ""
+        if not unique_id.startswith("local_") or "_" not in unique_id[6:]:
+            return None
+        return unique_id[6:].rsplit("_", 1)[0]
+
     async def handle_stop(call):
         entity_id = call.data["entity_id"]
         cancel_active(entity_id)
@@ -259,10 +278,16 @@ async def async_setup(hass, config):
         else:
             duration = 0.0
 
+        gradient_dp = data.get("tuya_gradient_dp")
+        gradient_device = None
+        if gradient_dp and entity_id not in gradient_failed:
+            gradient_device = localtuya_device_id(entity_id)
+
         async def interpolate_worker():
             try:
                 start_time = time.monotonic()
                 last_sent_tuple = None
+                use_gradient = gradient_device is not None
                 h_eff = start_h
 
                 while True:
@@ -283,6 +308,44 @@ async def async_setup(hass, config):
                     bri = calculate_brightness(h_eff, s_eff, base, white_mul, lut)
 
                     last_emitted[entity_id] = (h_eff, s_eff, base, now)
+
+                    if use_gradient and last_sent_tuple is not None and t < 1.0:
+                        # Intermediate steps go to the bulb's gradient data point, so the firmware
+                        # fades between them. First and last step use light.turn_on, which switches
+                        # the light on in colour mode and keeps the entity state in sync.
+                        value = base * brightness_multiplier(h_eff, s_eff, white_mul, lut) / 255.0
+                        cmd_tuple = (
+                            round(h_eff) % 360,
+                            round(s_eff * 10.0),
+                            max(TUYA_MIN_VALUE, min(1000, round(value * 1000.0))),
+                        )
+                        if cmd_tuple != last_sent_tuple:
+                            last_sent_tuple = cmd_tuple
+                            try:
+                                await hass.services.async_call(
+                                    "localtuya",
+                                    "set_dp",
+                                    {
+                                        "device_id": gradient_device,
+                                        "dp": gradient_dp,
+                                        "value": "1%04x%04x%04x00000000" % cmd_tuple,
+                                    },
+                                    blocking=True,
+                                )
+                                stalled = time.monotonic() - now > GRADIENT_STALL_SECS
+                            except Exception as e:  # pylint: disable=broad-except
+                                _LOGGER.warning("Gradient data point failed for %s: %s", entity_id, e)
+                                stalled = True
+                            if stalled:
+                                _LOGGER.warning(
+                                    "%s does not answer on data point %s, using light.turn_on steps",
+                                    entity_id,
+                                    gradient_dp,
+                                )
+                                gradient_failed.add(entity_id)
+                                use_gradient = False
+                        await asyncio.sleep(max(0.005, dt - (time.monotonic() - now)))
+                        continue
 
                     # Deduplicate identical quantized hardware states (LocalTuya rounds Hue to integer degrees)
                     cmd_tuple = (round(h_eff) % 360, round(s_eff, 1), bri)

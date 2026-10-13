@@ -86,6 +86,13 @@
         // Durata MINIMA in secondi di qualsiasi transizione: evita che i salti cromatici brevi risultino bruschi.
         "transition_min_duration_secs": 1.5,
 
+        // Solo lampadine LocalTuya: data point del controllo "gradient" della lampadina (28 sulle luci Tuya standard).
+        // Se impostato, i passi intermedi vengono inviati li e la lampadina sfuma da sola tra un passo e l'altro,
+        // invece di saltare a ogni comando. null = disattivato. Se la lampadina non risponde, si torna ai passi normali.
+        "tuya_gradient_dp": null,
+        // Intervallo in ms tra i passi quando tuya_gradient_dp e attivo.
+        "tuya_gradient_step_ms": 150,
+
         // Moltiplicatore di luminosita verso cui tende la taratura per tinta quando la saturazione scende (bianco).
         // Luminosita finale = base * (white_multiplier + S * (moltiplicatore_tinta - white_multiplier)).
         "white_multiplier": 0.45,

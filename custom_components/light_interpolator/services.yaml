@@ -44,6 +44,10 @@ set_target:
       name: White multiplier
       description: Brightness multiplier the hue LUT blends toward as saturation goes to zero.
       example: 0.45
+    tuya_gradient_dp:
+      name: Tuya gradient data point
+      description: LocalTuya lights only. Data point of the bulb's gradient control (usually 28). Intermediate steps are written there so the bulb fades between them.
+      example: 28
     hue_lut:
       name: Hue brightness LUT
       description: List of [hue, multiplier] pairs, interpolated circularly.

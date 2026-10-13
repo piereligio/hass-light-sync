@@ -283,6 +283,13 @@ pub struct AccentModeConfig {
     /// Brightness multiplier the hue LUT blends toward as saturation goes to zero (white).
     #[serde(default = "default_white_multiplier")]
     pub white_multiplier: f64,
+    /// LocalTuya bulbs only: data point of the bulb's gradient control (28 on standard Tuya lights).
+    /// When set, light_interpolator sends intermediate steps there and the bulb fades between them.
+    #[serde(default)]
+    pub tuya_gradient_dp: Option<u64>,
+    /// ms between steps when `tuya_gradient_dp` is set.
+    #[serde(default = "default_tuya_gradient_step_ms")]
+    pub tuya_gradient_step_ms: u64,
     /// HA master brightness smoothing: 0 or None = brightness follows color synchronously without lag.
     #[serde(default)]
     pub master_brightness_smoothing_tau_ms: Option<f64>,
@@ -303,6 +310,10 @@ fn default_transition_duration_secs() -> f64 {
 
 fn default_transition_min_duration_secs() -> f64 {
     1.5
+}
+
+fn default_tuya_gradient_step_ms() -> u64 {
+    150
 }
 
 fn default_white_multiplier() -> f64 {
@@ -396,6 +407,8 @@ impl Default for AccentModeConfig {
             transition_duration_secs: default_transition_duration_secs(),
             transition_min_duration_secs: default_transition_min_duration_secs(),
             white_multiplier: default_white_multiplier(),
+            tuya_gradient_dp: None,
+            tuya_gradient_step_ms: default_tuya_gradient_step_ms(),
             master_brightness_smoothing_tau_ms: None,
             warm: default_warm_output(),
             magenta: default_magenta_output(),
